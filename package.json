@@ -1,0 +1,11 @@
+{
+  "name": "gesture-airdrum",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "selftest": "node tools/evaluate.mjs --synth",
+    "evaluate": "node tools/evaluate.mjs",
+    "tune": "node tools/evaluate.mjs --tune"
+  }
+}

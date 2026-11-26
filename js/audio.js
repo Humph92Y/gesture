@@ -73,6 +73,13 @@ const RECIPES = {
   }],
 };
 
+const SAMPLES = {
+  kick: '../assets/audio/kick.wav', snare: '../assets/audio/snare-hard.wav',
+  hihatClosed: '../assets/audio/hihat-closed.wav', hihatOpen: '../assets/audio/hihat-open.wav',
+  tom: '../assets/audio/tom-hi.wav', floor: '../assets/audio/tom-lo.wav',
+  crash: '../assets/audio/crash.wav', ride: '../assets/audio/ride.wav',
+};
+
 export class DrumAudio {
   constructor() { this.ctx = null; this.buf = {}; this.openVoice = null; this.master = null; this.metroGain = null; }
 
@@ -87,6 +94,16 @@ export class DrumAudio {
     this.master.connect(comp).connect(this.ctx.destination);
     this.metroGain = this.ctx.createGain(); this.metroGain.gain.value = 0.5; this.metroGain.connect(this.ctx.destination);
     await Promise.all(Object.entries(RECIPES).map(async ([k, [dur, build]]) => { this.buf[k] = await render(sr, dur, build); }));
+    // 실제 드럼 녹음 소리로 교체 (불러오기 실패하면 합성 소리 그대로 사용)
+    this.sampleCount = 0;
+    await Promise.all(Object.entries(SAMPLES).map(async ([k, url]) => {
+      try {
+        const res = await fetch(new URL(url, import.meta.url));
+        if (!res.ok) return;
+        this.buf[k] = await this.ctx.decodeAudioData(await res.arrayBuffer());
+        this.sampleCount++;
+      } catch { /* 합성 소리 유지 */ }
+    }));
     if (this.ctx.state !== 'running') await this.ctx.resume();
   }
 

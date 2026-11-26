@@ -8,10 +8,11 @@
 //  - 길이 단위는 "어깨너비(sw)". 사람 크기나 카메라 거리와 상관없이 같은 기준.
 //  - 속도 계산은 화면 절대 좌표 (Y / swRef), 드럼 위치 판단은 어깨 기준 몸 좌표.
 
-export const ENGINE_VERSION = '0.1.0';
+export const ENGINE_VERSION = '0.2.0';
 
 export const LM = {
   L_SHOULDER: 11, R_SHOULDER: 12, L_ELBOW: 13, R_ELBOW: 14, L_WRIST: 15, R_WRIST: 16,
+  L_PINKY: 17, R_PINKY: 18, L_INDEX: 19, R_INDEX: 20, L_THUMB: 21, R_THUMB: 22,
   L_HIP: 23, R_HIP: 24, L_KNEE: 25, R_KNEE: 26, L_ANKLE: 27, R_ANKLE: 28,
   L_HEEL: 29, R_HEEL: 30, L_FOOT: 31, R_FOOT: 32,
 };
@@ -26,11 +27,17 @@ export const PADS = [
 ];
 
 export const DEFAULT_PARAMS = {
-  stickLen: 0.6,          // 가상 스틱 길이 (팔뚝 길이 대비)
-  handMinVel: 2.5,        // 손: 이 속도(어깨너비/초) 이상으로 내려와야 타격
+  // 가상 스틱 = 손목에서 "손 방향(손목→손가락 마디)"으로 뻗은 막대.
+  // 손목만 꺾어도 스틱 끝이 크게 움직이도록, 팔뚝이 아니라 손 방향을 따른다.
+  handStick: 4.0,         // 스틱 길이 = 손목→손가락마디 길이 × 이 값 (화면상 손이 짧아 보이면 스틱도 짧아짐 = 원근 반영)
+  gripBlend: 0.85,        // 손 방향 반영 비율 (1 = 손만, 0 = 팔뚝만)
+  stickLen: 0.6,          // 팔뚝 방향 막대 길이 (팔뚝 길이 대비, gripBlend 가 1 미만일 때 섞임)
+  handHoldMs: 250,        // 손가락 마디가 순간 안 보이면 이 시간 동안 직전 손 모양 유지
+  handMinVel: 2.2,        // 손: 이 속도(어깨너비/초) 이상으로 내려와야 타격
   handDecel: 0.8,         // 손: 최고 속도의 이 비율 아래로 떨어지는 순간 = 타격 (클수록 빨리 울림)
-  handRearm: 0.10,        // 손: 다시 치려면 이만큼 들어 올려야 함 (어깨너비)
-  handRefractoryMs: 60,   // 손: 연속 오작동 방지 최소 간격
+  handRearm: 0.07,        // 손: 다시 치려면 이만큼 들어 올려야 함 (어깨너비)
+  handRefractoryMs: 50,   // 손: 연속 오작동 방지 최소 간격
+  handMinStroke: 0.2,     // 손: 한 번 내려칠 때 최소 이동 거리 (어깨너비). 떨림 오작동 방지
   footMinVel: 1.2,        // 킥: 내려오는 최소 속도
   footDecel: 0.8,
   footRearmRatio: 0.4,    // 킥: 캘리브레이션 때 잰 발 들어올림 높이의 이 비율 이상 들어야 장전
@@ -75,7 +82,7 @@ export class StrikeDetector {
   constructor(opts) { this.o = opts; this.reset(); }
   reset() {
     this.prevV = null; this.prevT = null; this.peak = 0; this.armed = true;
-    this.bottom = 0; this.lastFire = -1e9; this.vy = 0;
+    this.bottom = 0; this.lastFire = -1e9; this.vy = 0; this.startV = null; this.hist = [];
   }
   // v: 아래로 갈수록 커지는 높이 값(어깨너비 단위), t: ms
   update(t, v) {
@@ -93,12 +100,17 @@ export class StrikeDetector {
       if (this.bottom - v >= o.rearm || t - this.lastFire > 700) this.armed = true;
     }
     if (!this.armed) return null;
+    // 최근 0.3초 안의 가장 높은 지점 = 내려치기 시작점
+    this.hist.push([t, v]);
+    while (this.hist.length && t - this.hist[0][0] > 300) this.hist.shift();
+    this.startV = Math.min(...this.hist.map(h => h[1]));
     let ev = null;
     if (vy > o.minVel && vy >= this.peak) {
       this.peak = vy;
     } else if (this.peak > 0) {
       if (vy < this.peak * o.decel) {
-        if (t - this.lastFire >= o.refractoryMs) {
+        // 떨림으로 생긴 짧은 움직임은 무시: 실제로 일정 거리 이상 내려왔을 때만 타격
+        if (t - this.lastFire >= o.refractoryMs && v - this.startV >= (o.minStroke || 0)) {
           ev = { t, vel: this.peak };
           this.armed = false; this.bottom = v; this.lastFire = t;
         }
@@ -128,13 +140,13 @@ export class Engine {
     const hhLift = (this.cal && this.cal.hhLift) || DEFAULT_LIFT;
     this.hhOpenAt = hhLift * p.hhOpenRatio;
     this.hhCloseAt = hhLift * p.hhCloseRatio;
-    const handOpts = { minVel: p.handMinVel, decel: p.handDecel, rearm: p.handRearm, refractoryMs: p.handRefractoryMs };
+    const handOpts = { minVel: p.handMinVel, decel: p.handDecel, rearm: p.handRearm, refractoryMs: p.handRefractoryMs, minStroke: p.handMinStroke };
     this.hands = {
       L: { det: new StrikeDetector(handOpts), fu: new OneEuro(p.filterMinCutoff, p.filterBeta), fv: new OneEuro(p.filterMinCutoff, p.filterBeta), tip: null, lost: true },
       R: { det: new StrikeDetector(handOpts), fu: new OneEuro(p.filterMinCutoff, p.filterBeta), fv: new OneEuro(p.filterMinCutoff, p.filterBeta), tip: null, lost: true },
     };
     this.kick = {
-      det: new StrikeDetector({ minVel: p.footMinVel, decel: p.footDecel, rearm: kickLift * p.footRearmRatio, refractoryMs: p.footRefractoryMs }),
+      det: new StrikeDetector({ minVel: p.footMinVel, decel: p.footDecel, rearm: kickLift * p.footRearmRatio, refractoryMs: p.footRefractoryMs, minStroke: kickLift * p.footRearmRatio * 0.5 }),
       f: new OneEuro(p.filterMinCutoff, p.filterBeta), v: null, lift: 0,
     };
     this.hh = { f: new OneEuro(p.filterMinCutoff, p.filterBeta), v: null, lift: 0, open: false, prevV: null, prevT: null, vy: 0 };
@@ -192,12 +204,25 @@ export class Engine {
       const wr = P(side === 'L' ? LM.L_WRIST : LM.R_WRIST);
       const el = P(side === 'L' ? LM.L_ELBOW : LM.R_ELBOW);
       if (!wr || !el) {
-        if (!H.lost) { H.det.reset(); H.fu.reset(); H.fv.reset(); }
+        if (!H.lost) { H.det.reset(); H.fu.reset(); H.fv.reset(); H.hand = null; }
         H.lost = true; H.tip = null; continue;
       }
       H.lost = false;
-      const tx = wr.x + (wr.x - el.x) * p.stickLen;
-      const ty = wr.y + (wr.y - el.y) * p.stickLen;
+      // 손가락 마디 = 검지·새끼·엄지 기준점 평균
+      const ks = (side === 'L' ? [LM.L_INDEX, LM.L_PINKY, LM.L_THUMB] : [LM.R_INDEX, LM.R_PINKY, LM.R_THUMB]).map(P).filter(Boolean);
+      let hx, hy; // 손목→마디 벡터 (픽셀)
+      if (ks.length) {
+        hx = ks.reduce((a, k) => a + k.x, 0) / ks.length - wr.x;
+        hy = ks.reduce((a, k) => a + k.y, 0) / ks.length - wr.y;
+        H.hand = { x: hx, y: hy, t };
+      } else if (H.hand && t - H.hand.t < p.handHoldMs) { hx = H.hand.x; hy = H.hand.y; }
+      const fxv = (wr.x - el.x) * p.stickLen, fyv = (wr.y - el.y) * p.stickLen;
+      let tx, ty;
+      if (hx !== undefined) {
+        const b = p.gripBlend;
+        tx = wr.x + b * hx * p.handStick + (1 - b) * fxv;
+        ty = wr.y + b * hy * p.handStick + (1 - b) * fyv;
+      } else { tx = wr.x + fxv; ty = wr.y + fyv; }
       // 필터는 어깨너비 단위로 (사람 크기와 상관없이 같은 감도)
       const fx = H.fu.filter(tx / S, tSec) * S, fy = H.fv.filter(ty / S, tSec) * S;
       const u = (fx - A.x) / A.sw, v = (fy - A.y) / A.sw;

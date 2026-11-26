@@ -60,8 +60,10 @@ function printSet(name, res) {
 
 // 학습 데이터로만 격자 탐색
 const GRID = {
-  handMinVel: [1.5, 2.0, 2.5, 3.0, 4.0],
-  handDecel: [0.4, 0.6, 0.8, 0.9],
+  handMinVel: [1.5, 2.2, 3.0, 4.0],
+  handDecel: [0.6, 0.8, 0.9],
+  handMinStroke: [0.1, 0.2, 0.3],
+  gripBlend: [0.6, 0.85, 1.0],
   footMinVel: [0.8, 1.2, 1.8],
   footRearmRatio: [0.25, 0.4, 0.6],
   hhOpenRatio: [0.35, 0.5, 0.7],
@@ -85,7 +87,8 @@ function tune(train, base) {
 let reports;
 if (flags.has('--synth')) {
   const proto = buildProtocol(60);
-  reports = [1, 2, 3, 4].map(s => synthReport({ protocol: proto, seed: s, split: s <= 2 ? 'training' : 'validation' }));
+  // 손목으로 치는 동작(기본) + 팔 전체로 치는 동작 둘 다 섞어서 점검
+  reports = [1, 2, 3, 4].map(s => synthReport({ protocol: proto, seed: s, noisePx: 2, style: s % 2 ? 'wrist' : 'arm', split: s <= 2 ? 'training' : 'validation' }));
 } else {
   reports = loadReports(inputs.length ? inputs : ['test-reports']);
 }

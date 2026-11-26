@@ -6,6 +6,7 @@ export const TARGET_NAMES = {
 };
 
 // 가이드 테스트 순서. t = 테스트 시작(첫 박 카운트) 기준 ms, 박자에 맞춰 소리가 들리는 시각
+export const PROTOCOL_VERSION = 2;
 export function buildProtocol(bpm = 60) {
   const beat = 60000 / bpm;
   const expected = [];
@@ -18,6 +19,13 @@ export function buildProtocol(bpm = 60) {
   };
   block('스네어 8번', ['snare'], 8);
   block('하이햇 8번', ['hihat'], 8);
+  // 빠른 연타: 8분음표 (박자의 절반 간격)
+  sections.push({ t, label: '하이햇 빠르게 16번 (8분음표)' });
+  for (let i = 0; i < 16; i++) { expected.push({ t, target: 'hihat' }); t += beat / 2; }
+  t += 2 * beat;
+  sections.push({ t, label: '하이햇·스네어 번갈아 16번 (8분음표)' });
+  for (let i = 0; i < 16; i++) { expected.push({ t, target: i % 2 ? 'snare' : 'hihat' }); t += beat / 2; }
+  t += 2 * beat;
   block('탐 4번', ['tom'], 4);
   block('플로어탐 4번', ['floor'], 4);
   block('크래시 4번', ['crash'], 4);
@@ -29,16 +37,17 @@ export function buildProtocol(bpm = 60) {
     expected.push({ t, target: 'hhClose' }); t += beat;
   }
   t += 2 * beat;
-  sections.push({ t, label: '기본 비트 2마디 (킥·스네어 + 하이햇)' });
+  sections.push({ t, label: '8비트 2마디 (하이햇 8분음표 + 킥·스네어)' });
   for (let bar = 0; bar < 2; bar++) {
     for (let b = 0; b < 4; b++) {
       expected.push({ t, target: 'hihat' });
       expected.push({ t, target: b % 2 === 0 ? 'kick' : 'snare' });
+      expected.push({ t: t + beat / 2, target: 'hihat' });
       t += beat;
     }
   }
   t += 2 * beat;
-  return { bpm, beatMs: beat, countIn: 4, expected, sections, durationMs: t };
+  return { version: PROTOCOL_VERSION, bpm, beatMs: beat, countIn: 4, expected, sections, durationMs: t };
 }
 
 // 채점: 기대 타격 ↔ 감지 타격 맞추기

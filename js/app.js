@@ -3,7 +3,7 @@ import { DrumAudio, PAD_SOUND } from './audio.js';
 import { buildProtocol, score, eventsToDetected, TARGET_NAMES } from './scoring.js';
 import * as store from './storage.js';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.2.0';
 const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
 const WASM = MP_BASE + '/wasm';
 const MODELS = {
@@ -93,7 +93,7 @@ async function startCamera() {
     if (track.getSettings().deviceId) $('camSelect').value = track.getSettings().deviceId;
     await ensureLandmarker();
     $('placeholder').hidden = true;
-    $('camInfo').textContent = `${cam.label || '카메라'} · ${cam.width}×${cam.height} · 최대 ${Math.round(cam.fps)}fps 요청됨`;
+    $('camInfo').textContent = `${cam.label || '카메라'} · ${cam.width}×${cam.height} · 최대 ${Math.round(cam.fps)}fps · 드럼 소리: ${audio.sampleCount ? '실제 녹음' : '합성'}`;
     $('btnCam').textContent = '카메라 다시 켜기';
     $('btnCalib').disabled = false; $('btnTest').disabled = false;
     engine = new Engine(params, calibration);
@@ -315,7 +315,7 @@ function calibStep(lm, view, t) {
   } else if (c.step === 'pads') {
     const pad = PADS[c.idx];
     if (!pad) { nextCalib('kick'); return; }
-    setPrompt(`${pad.name} 자리에서 3번 쳐 보세요 (${c.hits.length}/3)`, '원하는 높이·위치에서 주먹을 들었다 내려치세요. 지금 표시된 자리를 그대로 쓰려면 "건너뛰기"');
+    setPrompt(`${pad.name} 자리에서 3번 쳐 보세요 (${c.hits.length}/3)`, '원하는 위치에서 손목을 꺾어 쳐 보세요. 지금 표시된 자리를 그대로 쓰려면 "건너뛰기"');
     if (c.hits.length >= 3) {
       const u = c.hits.reduce((a, h) => a + h.u, 0) / c.hits.length, v = c.hits.reduce((a, h) => a + h.v, 0) / c.hits.length;
       const p = c.pads.find(x => x.id === pad.id); p.u = +u.toFixed(3); p.v = +v.toFixed(3);
@@ -507,6 +507,9 @@ $('btnExportAll').addEventListener('click', async () => {
 
 // ---------- 감도 설정 ----------
 const SLIDERS = [
+  ['gripBlend', '손목 반영 비율 (1 = 손 방향만, 0 = 팔뚝 방향만)', 0, 1, 0.05],
+  ['handStick', '가상 스틱 길이 (손 길이의 몇 배)', 2, 7, 0.1],
+  ['handMinStroke', '손: 최소 내려치는 거리 (높을수록 헛울림 감소, 너무 높으면 작은 타격 놓침)', 0.05, 0.5, 0.01],
   ['handMinVel', '손 감도: 최소 내려치는 속도 (낮을수록 예민)', 1, 6, 0.1],
   ['handDecel', '손 반응 시점 (높을수록 빨리 울림, 너무 높으면 오작동)', 0.3, 0.95, 0.05],
   ['footMinVel', '킥 감도: 최소 발 내리는 속도', 0.4, 3, 0.1],
